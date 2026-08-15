@@ -1,28 +1,23 @@
 <!DOCTYPE html>
-<!-- Lanternlight v26 (14 Aug 2026). The rules rewrite, worked out with
-     Victoria in conversation before touching the build. Words only —
-     no rule, scoring or layout changes.
-     HOW TO PLAY REWRITTEN, principle by principle:
-     - "swarm" gone, and no collective noun replaces it: swarms are
-       insect menace, this game is gentle, and "your twelve fireflies"
-       needs no name. Tooltips follow ("Your fireflies", "firefly
-       still with you").
-     - "gatherings" gone: designer vocabulary. The verb "gather" stays
-       in the tap instruction where it belongs. "Capture" considered
-       and rejected — capture is what you do to an opponent's pieces;
-       these are your own fireflies.
-     - Lanterns no longer "fly": only fireflies fly, lanterns are SET.
-       Two flying things was two things to confuse.
-     - "Square of distance" gone: "light fades fast as it travels —
-       four fireflies shine only twice as far as one" is the only
-       number a player needs; the maths stays backstage.
-     - The second job of brightness finally stated: where glows meet
-       the brighter wins — four against one leaves the dim lantern a
-       small pocket. Felt in one game of play; now the rules admit it.
-       "Spread thin / burn bright" promoted from the buried hint to
-       the rules proper.
-     - v25's turn-ring and Undo sentences cut: they narrated what the
-       eye already finds. -->
+<!-- Lanternlight v27 (15 Aug 2026). First finding from the live link
+     (Victoria, phone): "move the lantern under your finger doesn't work
+     at all - as soon as you tap, it deposits." Verified by simulated
+     touch against v26: the v20 two-tap pattern stages an invisible-
+     under-the-finger ghost on the first tap, ignores all touch drags
+     (the page scrolls instead - touch-action: manipulation), and
+     CONFIRM_R (40 board units, ~19px on a phone - smaller than a
+     fingertip) turns any adjusting second tap into a placement.
+     FIX, TOUCH ONLY (mouse/pen unchanged):
+     - canvas touch-action: none - a finger on the meadow talks to the
+       game, never scrolls the page;
+     - a drag moves the staged lantern under the finger, live;
+     - lifting leaves it staged; a clean tap ON the lantern sets it;
+       a tap or drag elsewhere just keeps aiming;
+     - setting still refuses too close to a placed lantern (glyphs must
+       not overlap): the lantern visibly stays unset - drag it away.
+     Principle: the hand's expectation is the spec. v22 established that
+     a player who misreads a symbol is right; a hand that drags is right
+     too. No rule, scoring or layout changes. -->
 
 
 <html lang="en">
@@ -149,7 +144,7 @@
     display: block; width: 100%; height: auto;
     border-radius: 8px;
     cursor: crosshair;
-    touch-action: manipulation;
+    touch-action: none;   /* v27: a finger on the meadow aims, never scrolls */
   }
 
   .scoreboard { display: flex; align-items: stretch; gap: 10px; margin-top: 14px; }
@@ -330,6 +325,11 @@
   let animating = false;
   let needsRender = true;
   const CONFIRM_R = 40;    // board-units radius around the ghost that counts as a confirming tap
+  const DRAG_SLOP = 24;    // board-units a touch may wander and still count as a clean tap
+  let dragId = null;       // v27: the touch currently holding the canvas
+  let dragMoved = false;   // has it travelled beyond the slop?
+  let dragStart = null;    // where it went down
+  let downOnGhost = false; // did it go down on the staged lantern?
 
   // v14: per-seat preview level — 'training' | 'standard' | 'expert'.
   // Governs what the MOVER sees before committing; see header comment.
@@ -955,7 +955,17 @@
 
   canvas.addEventListener('pointermove', (e) => {
     if (gameFull() || animating) { if (!staged) hover = null; return; }
-    if (e.pointerType === 'touch') return;
+    if (e.pointerType === 'touch') {
+      // v27: a held finger drags the staged lantern live
+      if (dragId !== e.pointerId) return;
+      const c = boardCoords(e);
+      if (!dragMoved && dragStart) {
+        const dx = c.x - dragStart.x, dy = c.y - dragStart.y;
+        if (dx*dx + dy*dy > DRAG_SLOP * DRAG_SLOP) dragMoved = true;
+      }
+      if (dragMoved) { hover = c; staged = true; needsRender = true; }
+      return;
+    }
     hover = boardCoords(e);
     staged = false;
     needsRender = true;
@@ -970,19 +980,14 @@
     const c = boardCoords(e);
 
     if (e.pointerType === 'touch') {
-      // two-tap: tap stages a ghost, tapping the ghost confirms, tapping elsewhere moves it
-      if (staged && hover) {
-        const dx = hover.x - c.x, dy = hover.y - c.y;
-        if (dx*dx + dy*dy < CONFIRM_R * CONFIRM_R) {
-          const gx = hover.x, gy = hover.y;
-          hover = null; staged = false;
-          placeLantern(gx, gy);
-          return;
-        }
-      }
-      if (tooCloseToStone(c)) return;
-      hover = c; staged = true;
-      needsRender = true;
+      // v27: touch aims by dragging - the lantern follows the finger.
+      // Lifting leaves it staged; only a clean tap ON it (down and up,
+      // no travel) sets it. Going down elsewhere re-aims immediately.
+      dragId = e.pointerId; dragMoved = false; dragStart = c;
+      downOnGhost = !!(staged && hover) &&
+        ((hover.x - c.x) * (hover.x - c.x) + (hover.y - c.y) * (hover.y - c.y) < CONFIRM_R * CONFIRM_R);
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+      if (!downOnGhost) { hover = c; staged = true; needsRender = true; }
       return;
     }
 
@@ -990,6 +995,23 @@
     if (tooCloseToStone(c)) return;
     hover = null; staged = false;
     placeLantern(c.x, c.y);
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'touch' || dragId !== e.pointerId) return;
+    dragId = null;
+    // a clean tap on the staged lantern sets it (never while a previous
+    // placement still animates, never overlapping a placed lantern)
+    if (!animating && downOnGhost && !dragMoved && staged && hover && !tooCloseToStone(hover)) {
+      const gx = hover.x, gy = hover.y;
+      hover = null; staged = false;
+      placeLantern(gx, gy);
+    }
+    downOnGhost = false; dragMoved = false; dragStart = null;
+  });
+  canvas.addEventListener('pointercancel', (e) => {
+    if (dragId !== e.pointerId) return;
+    dragId = null; downOnGhost = false; dragMoved = false; dragStart = null;
   });
 
   function placeLantern(x, y) {
@@ -1044,7 +1066,7 @@
   // honest hint text per device — a hover instruction on a phone is a rule nobody can follow
   if (window.matchMedia && window.matchMedia('(hover: none)').matches) {
     document.getElementById('hintHow').textContent =
-      'Tap the meadow to preview a lantern — tap the glowing preview again to place it, or tap elsewhere to move it. Tap ringed fireflies in your card to gather or send home while previewing.';
+      'Touch the meadow and drag — your lantern follows your finger. Lift to leave it glowing in place, then tap it once to set it, or drag it again to keep aiming. Tap ringed fireflies in your card to gather or send home while aiming.';
   }
 
   // --- render loop ---------------------------------------------------------
