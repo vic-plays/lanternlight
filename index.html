@@ -1,23 +1,23 @@
 <!DOCTYPE html>
-<!-- Lanternlight v27 (15 Aug 2026). First finding from the live link
-     (Victoria, phone): "move the lantern under your finger doesn't work
-     at all - as soon as you tap, it deposits." Verified by simulated
-     touch against v26: the v20 two-tap pattern stages an invisible-
-     under-the-finger ghost on the first tap, ignores all touch drags
-     (the page scrolls instead - touch-action: manipulation), and
-     CONFIRM_R (40 board units, ~19px on a phone - smaller than a
-     fingertip) turns any adjusting second tap into a placement.
-     FIX, TOUCH ONLY (mouse/pen unchanged):
-     - canvas touch-action: none - a finger on the meadow talks to the
-       game, never scrolls the page;
-     - a drag moves the staged lantern under the finger, live;
-     - lifting leaves it staged; a clean tap ON the lantern sets it;
-       a tap or drag elsewhere just keeps aiming;
-     - setting still refuses too close to a placed lantern (glyphs must
-       not overlap): the lantern visibly stays unset - drag it away.
-     Principle: the hand's expectation is the spec. v22 established that
-     a player who misreads a symbol is right; a hand that drags is right
-     too. No rule, scoring or layout changes. -->
+<!-- Lanternlight v28 (15 Aug 2026). Playtest finding (Victoria, phone,
+     live link, minutes after v27 went up): "much better but the second
+     tap isn't intuitive - can it drop when you lift your finger?"
+     She is right, and the mouse agrees: desktop has always been
+     hover-to-aim, click-to-commit - one gesture ending in placement.
+     v27 made touch aim with a drag but commit with a separate tap, a
+     ceremony the mouse never had. FIX, TOUCH ONLY:
+     - a drag now places the lantern where the finger lifts (drag is
+       the hover, release is the click); the pause for thought is
+       holding the finger down;
+     - the cautious path survives: a bare tap (no travel) still only
+       stages the lantern; tapping it sets it, dragging it moves it
+       and places on lift;
+     - lifting too close to a placed lantern still refuses (glyphs
+       must not overlap): the lantern stays staged - drag it away.
+     Tradeoff accepted: a careless lift commits; Undo is one tap away.
+     Principle: aim-then-commit should live in one gesture - if a
+     second gesture is required, the first one lied about being aim.
+     No rule, scoring or layout changes. -->
 
 
 <html lang="en">
@@ -1000,9 +1000,10 @@
   canvas.addEventListener('pointerup', (e) => {
     if (e.pointerType !== 'touch' || dragId !== e.pointerId) return;
     dragId = null;
-    // a clean tap on the staged lantern sets it (never while a previous
-    // placement still animates, never overlapping a placed lantern)
-    if (!animating && downOnGhost && !dragMoved && staged && hover && !tooCloseToStone(hover)) {
+    // v28: a drag drops where the finger lifts; a clean tap on the
+    // staged lantern still sets it (never mid-animation, never
+    // overlapping a placed lantern - then it stays staged)
+    if (!animating && (dragMoved || downOnGhost) && staged && hover && !tooCloseToStone(hover)) {
       const gx = hover.x, gy = hover.y;
       hover = null; staged = false;
       placeLantern(gx, gy);
@@ -1066,7 +1067,7 @@
   // honest hint text per device — a hover instruction on a phone is a rule nobody can follow
   if (window.matchMedia && window.matchMedia('(hover: none)').matches) {
     document.getElementById('hintHow').textContent =
-      'Touch the meadow and drag — your lantern follows your finger. Lift to leave it glowing in place, then tap it once to set it, or drag it again to keep aiming. Tap ringed fireflies in your card to gather or send home while aiming.';
+      'Touch the meadow and drag — your lantern follows your finger; let go to set it where it stands. A single tap lets you look first: tap the lantern to set it, or drag it onward. Tap ringed fireflies in your card to gather or send home while aiming.';
   }
 
   // --- render loop ---------------------------------------------------------
